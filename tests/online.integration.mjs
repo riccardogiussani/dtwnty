@@ -34,6 +34,17 @@ console.log('PASS: real Worker/SQLite/DO room creation, 2 joins, assignments, pe
 
 if(process.env.DTWNTY_E2E_ACCESS_FILE)writeFileSync(process.env.DTWNTY_E2E_ACCESS_FILE,JSON.stringify({host,alice,bob,root,origin,base,aliceX:source.x+1}));
 
+const beforePreview=await api(root+'/snapshot',alice.secret);
+const dmPreview=await api(root+'/snapshot?viewAs='+alice.memberId,host.secret);
+assert.equal(dmPreview.role,'master');assert.deepEqual(dmPreview.perspective,beforePreview);
+await api(root+'/snapshot?viewAs='+bob.memberId,alice.secret,undefined,400);
+await api(root+'/map?viewAs='+bob.memberId,alice.secret,undefined,400);
+await api(root+'/snapshot?viewAs=unknown-player',host.secret,undefined,400);
+const previewMap=await fetch(base+root+'/map?viewAs='+alice.memberId,{headers:{Origin:origin,Authorization:`Bearer ${host.secret}`}});
+const personalMap=await fetch(base+root+'/map',{headers:{Origin:origin,Authorization:`Bearer ${alice.secret}`}});
+assert.equal(previewMap.status,200);assert.deepEqual(Buffer.from(await previewMap.arrayBuffer()),Buffer.from(await personalMap.arrayBuffer()));
+assert.deepEqual(await api(root+'/snapshot',alice.secret),beforePreview,'DM preview must not change player exploration or state');
+console.log('PASS: DM perspective equals player map/state, is read-only, and players cannot impersonate one another.');
 await command(host,{type:'assign',tokenId:'alice-token',memberIds:[alice.memberId,bob.memberId]});
 const shared=await api(root+'/snapshot',bob.secret);assert(shared.ownTokenIds.includes('alice-token'));
 await command(bob,{type:'move',id:'alice-token',x:source.x+2,y:source.y});

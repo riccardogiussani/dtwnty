@@ -6,6 +6,11 @@ import type {Session} from '../src/session.ts';
 export interface Member{id:string;name:string;joinedAt?:number;hash:string;explored?:Exploration}
 export interface RoomState{code:string;revision:number;masterHash:string;masterHashes?:string[];members:Member[];assignments:Record<string,string|string[]>;board:Session;expiresAt:number;scene:number}
 export type Identity={role:'master'|'player';id:string};
+export function resolveViewer(room:RoomState,identity:Identity,requested:string|null):Member|null{
+  if(requested&&identity.role!=='master'&&requested!==identity.id)throw Error('Non puoi visualizzare un altro giocatore.');
+  const id=requested||(identity.role==='player'?identity.id:null);if(!id)return null;
+  const member=room.members.find(m=>m.id===id);if(!member)throw Error('Giocatore non trovato.');return member;
+}
 export function owners(room:RoomState,id:string):string[]{const value=room.assignments[id];return Array.isArray(value)?value:typeof value==='string'?[value]:[]}
 export function personalLight(room:RoomState,member:Member,model:OcclusionModel):Uint8Array{
   const m=room.board.map!;

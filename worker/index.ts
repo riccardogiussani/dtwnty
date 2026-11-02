@@ -3,7 +3,7 @@ import {validSession} from '../src/session.ts';
 import {segment} from '../src/occlusion.ts';
 import type {OcclusionModel} from '../src/occlusion.ts';
 import {decodeExploration} from '../src/exploration.ts';
-import {assign,editToken,settings,emptyModel,explore,move,personalLight,projectPlayer,redactMap} from './room-core.ts';
+import {assign,resolveViewer,editToken,settings,emptyModel,explore,move,personalLight,projectPlayer,redactMap} from './room-core.ts';
 import type {Identity,RoomState} from './room-core.ts';
 import {decodePng,encodePng} from './images.ts';
 import {SqliteRoomStore} from './room-storage.ts';
@@ -73,12 +73,13 @@ export class GameRoom extends DurableObject<Env>{
     const identity=await this.identity((request.headers.get('Authorization')??'').replace(/^Bearer /,''));if(!identity)return json({error:'Credenziale non valida. Rientra nella stanza.'},401);
     if(path==='/ticket'&&request.method==='POST'){const tickets=await this.ctx.storage.list<{expires:number}>({prefix:'ticket:'});for(const [key,value] of tickets)if(value.expires<Date.now())await this.ctx.storage.delete(key);if(tickets.size>100)throw Error('Troppi tentativi di connessione.');const ticket=crypto.randomUUID();await this.ctx.storage.put('ticket:'+ticket,{identity,expires:Date.now()+60000});return json({ticket})}
     const r=this.room,model=await this.prepare();
+    const viewer=(path==='/snapshot'||path==='/map')?resolveViewer(r,identity,new URL(request.url).searchParams.get('viewAs')):null;
     if(path==='/snapshot'&&request.method==='GET'){
-      if(identity.role==='master')return json({role:'master',code:r.code,revision:r.revision,scene:r.scene,board:r.board,members:r.members.map(({id,name,joinedAt})=>({id,name,joinedAt})),assignments:r.assignments});
+      if(identity.role==='master')return json({role:'master',code:r.code,revision:r.revision,scene:r.scene,board:r.board,members:r.members.map(({id,name,joinedAt})=>({id,name,joinedAt})),assignments:r.assignments,...(viewer?{perspective:projectPlayer(r,viewer,model)}:{})});
       return json(projectPlayer(r,r.members.find(m=>m.id===identity.id)!,model));
     }
     if(path==='/map'&&request.method==='GET'){
-      if(identity.role!=='player')throw Error('Endpoint riservato alla vista giocatore.');const member=r.members.find(m=>m.id===identity.id)!,light=personalLight(r,member,model),explored=decodeExploration(member.explored,model.width,model.height),raster=this.raster!;
+      if(!viewer)throw Error('Seleziona un giocatore per questa visuale.');const light=personalLight(r,viewer,model),explored=decodeExploration(viewer.explored,model.width,model.height),raster=this.raster!;
       const data=redactMap(raster.data,raster.width,raster.height,light,explored,model.width,model.height),png=encodePng(raster.width,raster.height,data);
       return new Response(png as BodyInit,{headers:{'Content-Type':'image/png','Cache-Control':'no-store'}});
     }
