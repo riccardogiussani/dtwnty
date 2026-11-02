@@ -3,7 +3,7 @@ import {validSession} from '../src/session.ts';
 import {segment} from '../src/occlusion.ts';
 import type {OcclusionModel} from '../src/occlusion.ts';
 import {decodeExploration} from '../src/exploration.ts';
-import {assign,emptyModel,explore,move,personalLight,projectPlayer,redactMap} from './room-core.ts';
+import {assign,editToken,settings,emptyModel,explore,move,personalLight,projectPlayer,redactMap} from './room-core.ts';
 import type {Identity,RoomState} from './room-core.ts';
 import {decodePng,encodePng} from './images.ts';
 import {SqliteRoomStore} from './room-storage.ts';
@@ -25,7 +25,7 @@ export default {
         const input=await body(request);let attempts=0;
         do{const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',random=crypto.getRandomValues(new Uint8Array(8)),code=Array.from(random,x=>alphabet[x%alphabet.length]).join('');const stub=env.ROOMS.get(env.ROOMS.idFromName(code));response=await stub.fetch(new Request(`https://room/create`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...input,code})}));if(response.status!==409)break}while(++attempts<4);
       }else{
-        const match=url.pathname.match(/^\/rooms\/([A-Z2-9]{8})(\/(?:join|snapshot|command|map|ticket|ws))$/);if(!match)return new Response('Not found',{status:404,headers});
+        const match=url.pathname.match(/^\/rooms\/([A-Z2-9]{8})(\/(?:join|dm|snapshot|command|map|ticket|ws))$/);if(!match)return new Response('Not found',{status:404,headers});
         const forwarded=new Request(request);const forwardedUrl=new URL(request.url);forwardedUrl.pathname=match[2];response=await env.ROOMS.get(env.ROOMS.idFromName(match[1])).fetch(new Request(forwardedUrl,forwarded));
       }
       if(response.status===101)return response;
@@ -43,7 +43,7 @@ export class GameRoom extends DurableObject<Env>{
   private async load(){if(!this.room)this.room=this.storage().read();if(this.room&&this.room.expiresAt<Date.now())throw Error('La stanza è scaduta.')}
   private async prepare(){const r=this.room!;if(!this.raster)this.raster=decodePng(r.board.map!.src);if(!this.model){if(r.board.occlusion){const img=decodePng(r.board.occlusion.image.src);this.model=segment(img.data,img.width,img.height)}else this.model=emptyModel(this.raster.width,this.raster.height)}return this.model}
   private async save(){const r=this.room!;await this.ctx.storage.setAlarm(r.expiresAt);await this.storage().write(r)}
-  private async identity(value:string):Promise<Identity|null>{if(!value||value.length>200)return null;const digest=await hash(value),r=this.room!;if(digest===r.masterHash)return{role:'master',id:'master'};const member=r.members.find(m=>m.hash===digest);return member?{role:'player',id:member.id}:null}
+  private async identity(value:string):Promise<Identity|null>{if(!value||value.length>200)return null;const digest=await hash(value),r=this.room!;if(digest===r.masterHash||r.masterHashes?.includes(digest))return{role:'master',id:'master'};const member=r.members.find(m=>m.hash===digest);return member?{role:'player',id:member.id}:null}
   private notify(){for(const ws of this.ctx.getWebSockets()){const attachment=ws.deserializeAttachment() as Identity|null;if(attachment?.role)try{ws.send(JSON.stringify({type:'changed',revision:this.room!.revision}))}catch{}}}
   async fetch(request:Request):Promise<Response>{return this.serial(async()=>{try{
     await this.load();const path=new URL(request.url).pathname;
@@ -54,9 +54,13 @@ export class GameRoom extends DurableObject<Env>{
       await this.prepare();for(const t of this.room.board.tokens)decodePng(t.src);await this.save();return json({code:this.room.code,secret:master,role:'master'});
     }
     if(!this.room)return json({error:'Stanza non trovata.'},404);
+    if(path==='/dm'&&request.method==='POST'){
+      const key=request.headers.get('X-Create-Key');if(!this.env.CREATE_ROOM_KEY||!key||await hash(key)!==await hash(this.env.CREATE_ROOM_KEY))return json({error:'Chiave DM non valida.'},403);
+      const credential=secret();this.room.masterHashes=[...(this.room.masterHashes??[]).slice(-7),await hash(credential)];await this.save();return json({code:this.room.code,secret:credential,role:'master'});
+    }
     if(path==='/join'&&request.method==='POST'){
       const ip=request.headers.get('CF-Connecting-IP')??'local',now=Date.now();let rate=this.attempts.get(ip);if(!rate||now-rate.time>60000){rate={time:now,count:0};if(this.attempts.size>1000)this.attempts.clear();this.attempts.set(ip,rate)}if(++rate.count>15)return json({error:'Troppi tentativi. Riprova tra un minuto.'},429);
-      if(this.room.members.length>=12)throw Error('Stanza piena (12 giocatori).');const input=await body(request,2048),name=typeof input.name==='string'?input.name.trim().slice(0,40):'';if(!name)throw Error('Inserisci il tuo nome.');const key=secret(),id=crypto.randomUUID();this.room.members.push({id,name,hash:await hash(key)});this.room.revision++;await this.save();this.notify();return json({code:this.room.code,secret:key,role:'player',memberId:id});
+      if(this.room.members.length>=12)throw Error('Stanza piena (12 giocatori).');const input=await body(request,2048),name=typeof input.name==='string'?input.name.trim().slice(0,40):'';if(!name)throw Error('Inserisci il tuo nome.');const key=secret(),id=crypto.randomUUID();this.room.members.push({id,name,joinedAt:Date.now(),hash:await hash(key)});this.room.revision++;await this.save();this.notify();return json({code:this.room.code,secret:key,role:'player',memberId:id});
     }
     if(path==='/ws'&&request.headers.get('Upgrade')?.toLowerCase()==='websocket'){
       const ticket=new URL(request.url).searchParams.get('ticket')??'';
@@ -70,7 +74,7 @@ export class GameRoom extends DurableObject<Env>{
     if(path==='/ticket'&&request.method==='POST'){const tickets=await this.ctx.storage.list<{expires:number}>({prefix:'ticket:'});for(const [key,value] of tickets)if(value.expires<Date.now())await this.ctx.storage.delete(key);if(tickets.size>100)throw Error('Troppi tentativi di connessione.');const ticket=crypto.randomUUID();await this.ctx.storage.put('ticket:'+ticket,{identity,expires:Date.now()+60000});return json({ticket})}
     const r=this.room,model=await this.prepare();
     if(path==='/snapshot'&&request.method==='GET'){
-      if(identity.role==='master')return json({role:'master',code:r.code,revision:r.revision,scene:r.scene,board:r.board,members:r.members.map(({id,name})=>({id,name})),assignments:r.assignments});
+      if(identity.role==='master')return json({role:'master',code:r.code,revision:r.revision,scene:r.scene,board:r.board,members:r.members.map(({id,name,joinedAt})=>({id,name,joinedAt})),assignments:r.assignments});
       return json(projectPlayer(r,r.members.find(m=>m.id===identity.id)!,model));
     }
     if(path==='/map'&&request.method==='GET'){
@@ -85,7 +89,12 @@ export class GameRoom extends DurableObject<Env>{
         const opening=model.openings.find(o=>o.id===input.id);if(!opening||!r.board.occlusion)throw Error('Apertura non trovata.');
         if(identity.role!=='master'){const member=r.members.find(m=>m.id===identity.id)!,light=personalLight(r,member,model);if(!opening.pixels.some(p=>light[p]>20))throw Error('Apertura fuori dalla tua visuale.')}
         const ids=r.board.occlusion.openIds;r.board.occlusion.openIds=ids.includes(opening.id)?ids.filter(x=>x!==opening.id):[...ids,opening.id];
-      }else if(identity.role==='master'&&input.type==='assign')assign(r,input.tokenId,input.memberId);
+      }else if(identity.role==='master'&&input.type==='assign')assign(r,input.tokenId,input.memberIds??input.memberId);
+      else if(identity.role==='master'&&input.type==='settings')settings(r,input.patch);
+      else if(identity.role==='master'&&input.type==='edit')editToken(r,input.id,input.patch);
+      else if(identity.role==='master'&&input.type==='remove'){
+        if(!r.board.tokens.some(t=>t.id===input.id))throw Error('Token non trovato.');r.board.tokens=r.board.tokens.filter(t=>t.id!==input.id);delete r.assignments[input.id];
+      }
       else if(identity.role==='master'&&input.type==='replace'){
         if(!validSession(input.board)||!input.board.map||input.board.tokens.length>100)throw Error('Tavolo non valido.');const old=r.board;
         // Decode all new assets before replacing the authoritative board.
