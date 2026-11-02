@@ -14,6 +14,8 @@ async function api(path,secret,input,status=200,extra={}){const response=await f
 await api('/rooms',null,{board},403,{'X-Create-Key':'wrong'});
 const host=await api('/rooms',null,{board},200,{'X-Create-Key':process.env.DTWNTY_CREATE_KEY??'local-test-only'}),root=`/rooms/${host.code}`;
 const alice=await api(root+'/join',null,{name:'Alice'}),bob=await api(root+'/join',null,{name:'Bob'});
+await api(root+'/dm',null,{},403,{'X-Create-Key':'bad'});
+const dm=await api(root+'/dm',null,{},200,{'X-Create-Key':process.env.DTWNTY_CREATE_KEY??'local-test-only'});assert.equal((await api(root+'/snapshot',dm.secret)).role,'master');assert.equal((await api(root+'/snapshot',host.secret)).role,'master');
 await api(root+'/snapshot','bad-credential',undefined,401);
 async function command(who,input,status=200){const snap=await api(root+'/snapshot',who.secret);return api(root+'/command',who.secret,{...input,revision:snap.revision},status)}
 await command(host,{type:'assign',tokenId:'alice-token',memberId:alice.memberId});await command(host,{type:'assign',tokenId:'bob-token',memberId:bob.memberId});
@@ -31,3 +33,13 @@ const resumed=await api(root+'/snapshot',alice.secret);assert.equal(resumed.memb
 console.log('PASS: real Worker/SQLite/DO room creation, 2 joins, assignments, personal maps, hidden tokens, denied commands, WebSocket update and reconnect credentials.');
 
 if(process.env.DTWNTY_E2E_ACCESS_FILE)writeFileSync(process.env.DTWNTY_E2E_ACCESS_FILE,JSON.stringify({host,alice,bob,root,origin,base,aliceX:source.x+1}));
+
+await command(host,{type:'assign',tokenId:'alice-token',memberIds:[alice.memberId,bob.memberId]});
+const shared=await api(root+'/snapshot',bob.secret);assert(shared.ownTokenIds.includes('alice-token'));
+await command(bob,{type:'move',id:'alice-token',x:source.x+2,y:source.y});
+await command(host,{type:'edit',id:'alice-token',patch:{name:'Arwen',size:88}});
+assert.equal((await api(root+'/snapshot',host.secret)).board.tokens.find(t=>t.id==='alice-token').name,'Arwen');
+await command(alice,{type:'edit',id:'alice-token',patch:{name:'Forbidden'}},400);
+await command(alice,{type:'settings',patch:{fogEnabled:false}},400);
+await command(alice,{type:'remove',id:'bob-token'},400);
+console.log('PASS: DM key login, shared token ownership, resize/rename and player authorization.');

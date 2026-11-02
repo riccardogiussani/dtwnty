@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {segment} from '../src/occlusion.ts';
-import {assign,move,explore,personalLight,projectPlayer,redactMap} from '../worker/room-core.ts';
+import {assign,editToken,settings,move,explore,personalLight,projectPlayer,redactMap} from '../worker/room-core.ts';
 import {decodeExploration} from '../src/exploration.ts';
 function fixture(){
   const width=31,height=21,data=new Uint8Array(width*height*4);for(let y=0;y<height;y++)data.set([255,0,0,255],(y*width+15)*4);
@@ -27,4 +27,18 @@ test('map pixels themselves are redacted and exploration is not transferred betw
   const {room,model}=fixture();explore(room,model);const alice=room.members[0],rgba=new Uint8Array(model.width*model.height*4).fill(230),light=personalLight(room,alice,model),explored=decodeExploration(alice.explored,model.width,model.height);
   let output=redactMap(rgba,model.width,model.height,light,explored,model.width,model.height);assert.deepEqual([...output.slice((10*31+25)*4,(10*31+25)*4+4)],[7,13,12,255]);assert.equal(output[(10*31+5)*4],230);
   move(room,{role:'player',id:'alice'},'a',5,2);room.board.lightCells=2;explore(room,model);const current=personalLight(room,alice,model);output=redactMap(rgba,model.width,model.height,current,decodeExploration(alice.explored,31,21),31,21);assert.equal(output[(10*31+5)*4],64);assert(!projectPlayer(room,alice,model).board.tokens.some(t=>t.id==='left-enemy'));
+});
+
+test('shared ownership grants both players control and can be revoked independently',()=>{
+  const {room,model}=fixture();assign(room,'a',['alice','bob','bob']);assert.deepEqual(room.assignments.a,['alice','bob']);
+  move(room,{role:'player',id:'bob'},'a',7,10);assert(projectPlayer(room,room.members[1],model).ownTokenIds.includes('a'));
+  assert.throws(()=>assign(room,'a',['alice','unknown']));assert.deepEqual(room.assignments.a,['alice','bob']);
+  assign(room,'a',['alice']);assert.throws(()=>move(room,{role:'player',id:'bob'},'a',8,10));
+  assert(!projectPlayer(room,room.members[1],model).ownTokenIds.includes('a'));
+});
+test('token names, sizes and scene settings validate before mutation',()=>{
+  const {room}=fixture();editToken(room,'a',{name:'  Arwen  ',size:88});assert.equal(room.board.tokens[0].name,'Arwen');assert.equal(room.board.tokens[0].size,88);
+  assert.throws(()=>editToken(room,'a',{name:'Changed',size:400}));assert.equal(room.board.tokens[0].name,'Arwen');
+  assert.throws(()=>editToken(room,'a',{name:' '}));settings(room,{gridSize:75,lightCells:12,fogEnabled:true,gridVisible:true});assert.equal(room.board.gridSize,75);assert.equal(room.board.lightCells,12);
+  assert.throws(()=>settings(room,{gridSize:1,fogEnabled:false}));assert.equal(room.board.fogEnabled,true);
 });
