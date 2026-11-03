@@ -54,3 +54,15 @@ await command(alice,{type:'edit',id:'alice-token',patch:{name:'Forbidden'}},400)
 await command(alice,{type:'settings',patch:{fogEnabled:false}},400);
 await command(alice,{type:'remove',id:'bob-token'},400);
 console.log('PASS: DM key login, shared token ownership, resize/rename and player authorization.');
+
+await command(host,{type:'settings',patch:{lightCells:100,snapToGrid:true}});
+await command(host,{type:'edit',id:'alice-token',patch:{lightCells:1}});
+let lighting=await api(root+'/snapshot',alice.secret);assert.equal(lighting.board.snapToGrid,true);assert.equal(lighting.board.tokens.find(t=>t.id==='alice-token').lightCells,1);
+await command(alice,{type:'move',id:'alice-token',x:source.x+2,y:source.y+2});
+let dropped=await api(root+'/snapshot',host.secret);const snapped=dropped.board.tokens.find(t=>t.id==='alice-token'),cell=board.gridSize??50;
+assert.equal(snapped.x%cell,cell/2);assert.equal(snapped.y%cell,cell/2);
+await command(host,{type:'edit',id:'alice-token',patch:{lightCells:null}});await command(host,{type:'settings',patch:{snapToGrid:false}});
+await command(alice,{type:'move',id:'alice-token',x:source.x+2.5,y:source.y+2.5});
+dropped=await api(root+'/snapshot',host.secret);const free=dropped.board.tokens.find(t=>t.id==='alice-token');assert.equal(free.lightCells,undefined);assert.equal(dropped.board.lightCells,100);assert.equal(free.x,source.x+2.5);
+await command(host,{type:'edit',id:'alice-token',patch:{lightCells:101}},400);
+console.log('PASS: custom/global light range, inheritance reset and optional authoritative grid snapping.');

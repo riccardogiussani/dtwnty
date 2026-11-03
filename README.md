@@ -50,7 +50,7 @@ Sotto il caricamento della mappa trovi **Dimensione cella**: usa il cursore o in
 1. Carica la mappa di gioco, poi **Carica occlusion map** nel pannello **Luce e visibilità**.
 2. Le immagini devono avere lo stesso inquadramento; risoluzioni diverse sono adattate alle dimensioni della mappa. Un rapporto d'aspetto diverso di oltre l'1% è rifiutato. Un adattamento di scala non corregge disegni disallineati: controlla la sovrapposizione.
 3. Dopo il caricamento viene attivata la **Vista master** con sovrapposizione semitrasparente, per verificare l'allineamento. Disattivala per vedere la visuale dei giocatori.
-4. Ogni token **giocatore** emette luce circolare (8 celle per impostazione iniziale). **Portata luce** va da 1 a 40 celle e usa la dimensione della griglia. I nemici non emettono luce. Durante il trascinamento la luce rimane ferma: si aggiorna solo quando rilasci il token. Un trascinamento annullato non modifica posizione o zone esplorate.
+4. Ogni token **giocatore** emette luce circolare (8 celle per impostazione iniziale). **Portata luce** va da 1 a 100 celle e usa la dimensione della griglia. I nemici non emettono luce. Durante il trascinamento la luce rimane ferma: si aggiorna solo quando rilasci il token. Un trascinamento annullato non modifica posizione o zone esplorate.
 5. Rosso = ostacolo fisso bloccante; verde = porta; azzurro/ciano = finestra; giallo = custom non bloccante. Sfondo nero/trasparente e colori non riconosciuti, incluso magenta, sono ignorati. Il riconoscimento tollera la compressione JPEG; PNG a colori piatti resta preferibile.
 6. Ogni componente connessa verde o ciano diventa un'apertura distinta, inizialmente chiusa e bloccante. Clicca il rettangolo verde/azzurro per aprirla o chiuderla. Il bordo tratteggiato indica un'apertura aperta. Anche le finestre chiuse bloccano completamente la vista, come richiesto. Componenti dello stesso colore che si toccano diventano un unico elemento.
 7. In vista giocatori puoi interagire con le aperture illuminate; in vista master con tutte. La vista master rivela tutta la mappa e serve alla gestione locale: non è un sistema di permessi multiplayer.
@@ -71,3 +71,11 @@ Apri **Gioca online** per creare una stanza o entrare con un codice. Il master a
 Per il gioco locale le immagini restano nel browser. Quando crei una stanza online, il tavolo viene caricato sul tuo Worker e nel database SQLite privato della stanza; il servizio genera le visuali personali. Stanze: 12 giocatori, 100 token, scadenza dopo 7 giorni. Il servizio Cloudflare non è stato pubblicato automaticamente.
 
 Il backend online usa solo Workers e Durable Objects SQLite: non richiede attivazione R2, bucket o chiavi R2. Le immagini sono archiviate in blocchi da 256 KiB e non vengono riscritte durante i normali spostamenti.
+
+
+### Raggio individuale e snap alla griglia
+
+In **Griglia e illuminazione** la **Portata luce generale** è uno slider da 1 a 100 celle. Selezionando un token, **Raggio personalizzato** abilita uno slider nello stesso intervallo per quel token; disattivandolo torna a ereditare il valore generale. Il valore individuale è usato sia dalle visuali personali online sia dal filtro DM del token selezionato. Gli slider confermano al rilascio, evitando richieste per ogni posizione attraversata.
+
+**Snap al centro della griglia** è un’impostazione condivisa della partita, inizialmente disattivata. Si applica al rilascio dei token, per DM e giocatori, ed è verificata anche dal server. Si basa sulla dimensione della cella e funziona anche se la griglia è nascosta. Non sposta automaticamente i token già presenti; ai bordi usa il centro di cella più vicino che rimane sulla mappa (se la mappa è più piccola di mezza cella, usa il suo centro). Valori individuali e snap vengono inclusi nei salvataggi e nell’esportazione della scena.
+

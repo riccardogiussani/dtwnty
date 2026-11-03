@@ -60,7 +60,7 @@ export function visibility(width:number,height:number,solid:Uint8Array,lights:Li
     const mark=(x:number,y:number)=>{const distance=Math.hypot(x-cx,y-cy);if(distance>radius)return;const intensity=Math.round(255*Math.min(1,(radius-distance)/Math.max(1,radius*.16)));const p=y*width+x;light[p]=Math.max(light[p],intensity)};
     function cast(row:number,start:number,end:number,xx:number,xy:number,yx:number,yy:number):void{
       if(start<end)return;let next=start;
-      for(let distance=row;distance<=Math.ceil(radius);distance++){
+      for(let distance=row;distance<=Math.min(Math.ceil(radius),Math.max(width,height));distance++){
         let blocked=false;const dy=-distance;
         for(let dx=-distance;dx<=0;dx++){
           const left=(dx-.5)/(dy+.5),right=(dx+.5)/(dy-.5);if(start<right)continue;if(end>left)break;

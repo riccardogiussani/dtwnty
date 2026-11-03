@@ -32,7 +32,7 @@ test('old sessions remain valid and occlusion settings survive JSON roundtrip',(
   const image={src:'data:image/png;base64,AAAA',name:'test',width:31,height:21};
   const session={...emptySession(),map:image,occlusion:{image,openIds:['door-15-9-15-11']},fogEnabled:true,lightCells:8};
   const restored=JSON.parse(JSON.stringify(session));assert(validSession(restored));assert.deepEqual(restored,session);
-  for(const lightCells of [0,41,NaN,'8'])assert(!validSession({...session,lightCells}));
+  for(const lightCells of [0,101,NaN,'8'])assert(!validSession({...session,lightCells}));
   assert(!validSession({...session,occlusion:{image,openIds:['bad-id']}}));
   assert(!validSession({...session,occlusion:{image:{...image,width:0},openIds:[]}}));
 });
